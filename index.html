@@ -22,7 +22,12 @@ button.primary{background:#111;color:#fff;border:0;padding:11px 18px;border-radi
 button.secondary{background:#eee;color:#222;border:0;padding:10px 15px;border-radius:7px;cursor:pointer}
 button.danger{background:#b42318;color:#fff;border:0;padding:7px 10px;border-radius:6px;cursor:pointer}
 .table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:10px;border-bottom:1px solid #eee;text-align:left}th{background:#fafafa}
-.badge{display:inline-block;padding:4px 8px;border-radius:12px;background:#eee;font-size:12px}.upcoming{border-left:4px solid #d9b36c;padding:10px 14px;margin:9px 0;background:#fafafa}
+.badge{display:inline-block;padding:4px 8px;border-radius:12px;background:#eee;font-size:12px}
+.modal{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center;padding:20px;z-index:10}
+.modal.show{display:flex}.modalbox{background:#fff;width:100%;max-width:720px;max-height:90vh;overflow:auto;border-radius:14px;padding:24px}
+.modalhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.close{border:0;background:#eee;border-radius:50%;width:34px;height:34px;font-size:20px;cursor:pointer}
+.action{display:flex;gap:6px;flex-wrap:wrap}.action button{border:0;padding:7px 9px;border-radius:6px;cursor:pointer}.edit{background:#eee}.complete{background:#16794a;color:#fff}
+.upcoming{border-left:4px solid #d9b36c;padding:10px 14px;margin:9px 0;background:#fafafa}
 .muted{color:#777}.error{color:#b42318;margin:8px 0}.success{color:#16794a;margin:8px 0}
 #login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:#111}
 .loginbox{background:#fff;width:100%;max-width:430px;padding:30px;border-radius:15px}.loginbox h1{margin-top:0}
@@ -88,7 +93,7 @@ button.danger{background:#b42318;color:#fff;border:0;padding:7px 10px;border-rad
 </div>
 <div class="panel">
 <h2>Bookings</h2>
-<div class="table-wrap"><table><thead><tr><th>Client</th><th>Date</th><th>Type</th><th>Charged</th><th>Paid</th><th>Balance</th><th>Travel</th><th>Status</th><th></th></tr></thead><tbody id="bookingRows"></tbody></table></div>
+<p class="muted">Use <b>Edit</b> to change the booking, payment or travel details. When a shoot is finished, use <b>Mark completed</b> — no new booking is needed.</p><div class="table-wrap"><table><thead><tr><th>Client</th><th>Date</th><th>Type</th><th>Charged</th><th>Paid</th><th>Balance</th><th>Travel</th><th>Status</th><th>Actions</th></tr></thead><tbody id="bookingRows"></tbody></table></div>
 </div>
 <div class="panel">
 <h2>One-time data import</h2>
@@ -112,6 +117,26 @@ button.danger{background:#b42318;color:#fff;border:0;padding:7px 10px;border-rad
 <div class="panel"><h2>Expenses</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th></th></tr></thead><tbody id="expenseRows"></tbody></table></div></div>
 </section>
 </main>
+</div>
+
+<div id="editModal" class="modal">
+  <div class="modalbox">
+    <div class="modalhead"><h2>Edit Booking</h2><button class="close" onclick="closeEdit()">×</button></div>
+    <form id="editForm">
+      <input type="hidden" id="editId">
+      <label>Client name<input id="editClient" required></label>
+      <label>Shoot date<input id="editDate" type="date" required></label>
+      <label>Booking type<select id="editType"><option>Engagement</option><option>Matric</option><option>Couple</option><option>Event</option><option>Family</option><option>Sports</option><option>Graduation</option><option>Birthday event</option><option>Wedding</option><option>Product</option><option>Headshots</option><option>Other</option></select></label>
+      <label>Amount charged (R)<input id="editAmount" type="number" min="0" step="0.01" required></label>
+      <label>Amount paid (R)<input id="editPaid" type="number" min="0" step="0.01" required></label>
+      <label>Travel fee (R)<input id="editTravel" type="number" min="0" step="0.01" required></label>
+      <label>Contact person<input id="editContact"></label>
+      <label>Contact number<input id="editPhone"></label>
+      <label>Status<select id="editStatus"><option>Upcoming</option><option>Completed</option><option>Cancelled</option></select></label>
+      <label class="full">Notes<textarea id="editNotes"></textarea></label>
+      <div class="full action"><button class="primary" type="submit">Save Changes</button><button class="secondary" type="button" onclick="closeEdit()">Cancel</button></div>
+    </form>
+  </div>
 </div>
 
 <script>
@@ -184,7 +209,8 @@ function render(){
 
   document.getElementById('bookingRows').innerHTML=bookings.map(b=>{
     const total=Number(b.amount_charged||0)+Number(b.travel_fee||0), bal=Math.max(0,total-Number(b.amount_paid||0));
-    return `<tr><td>${esc(b.client)}</td><td>${b.shoot_date}</td><td>${esc(b.booking_type)}</td><td>${money(b.amount_charged)}</td><td>${money(b.amount_paid)}</td><td>${money(bal)}</td><td>${b.travel_fee?money(b.travel_fee):'Included'}</td><td><span class="badge">${esc(b.status)}</span></td><td><button class="danger" onclick="deleteBooking('${b.id}')">Delete</button></td></tr>`
+    const complete=b.status==='Upcoming' ? `<button class="complete" onclick="markCompleted('${b.id}')">Mark completed</button>` : '';
+    return `<tr><td>${esc(b.client)}</td><td>${b.shoot_date}</td><td>${esc(b.booking_type)}</td><td>${money(b.amount_charged)}</td><td>${money(b.amount_paid)}</td><td>${money(bal)}</td><td>${b.travel_fee?money(b.travel_fee):'Included'}</td><td><span class="badge">${esc(b.status)}</span></td><td><div class="action"><button class="edit" onclick="openEdit('${b.id}')">Edit</button>${complete}<button class="danger" onclick="deleteBooking('${b.id}')">Delete</button></div></td></tr>`
   }).join('');
 
   document.getElementById('expenseRows').innerHTML=expenses.map(e=>`<tr><td>${e.expense_date}</td><td>${esc(e.description)}</td><td>${esc(e.category)}</td><td>${money(e.amount)}</td><td><button class="danger" onclick="deleteExpense('${e.id}')">Delete</button></td></tr>`).join('');
@@ -204,6 +230,36 @@ document.getElementById('expenseForm').onsubmit=async e=>{
   if(error){alert(error.message);return}
   e.target.reset();await loadData();
 };
+
+function openEdit(id){
+  const b=bookings.find(x=>String(x.id)===String(id));
+  if(!b)return;
+  editId.value=b.id;editClient.value=b.client||'';editDate.value=b.shoot_date||'';editType.value=b.booking_type||'Other';
+  editAmount.value=Number(b.amount_charged||0);editPaid.value=Number(b.amount_paid||0);editTravel.value=Number(b.travel_fee||0);
+  editContact.value=b.contact_person||'';editPhone.value=b.contact_number||'';editStatus.value=b.status||'Upcoming';editNotes.value=b.notes||'';
+  document.getElementById('editModal').classList.add('show');
+}
+function closeEdit(){document.getElementById('editModal').classList.remove('show')}
+document.getElementById('editModal').addEventListener('click',e=>{if(e.target.id==='editModal')closeEdit()});
+document.getElementById('editForm').onsubmit=async e=>{
+  e.preventDefault();
+  const {error}=await db.from('bookings').update({
+    client:editClient.value,shoot_date:editDate.value,booking_type:editType.value,
+    amount_charged:Number(editAmount.value||0),amount_paid:Number(editPaid.value||0),
+    travel_fee:Number(editTravel.value||0),contact_person:editContact.value,
+    contact_number:editPhone.value,status:editStatus.value,notes:editNotes.value
+  }).eq('id',editId.value);
+  if(error){alert(error.message);return}
+  closeEdit();await loadData();
+};
+async function markCompleted(id){
+  const b=bookings.find(x=>String(x.id)===String(id));
+  if(!b)return;
+  if(confirm(`Mark ${b.client} as completed?`)){
+    const {error}=await db.from('bookings').update({status:'Completed'}).eq('id',id);
+    if(error)alert(error.message);else await loadData();
+  }
+}
 async function deleteBooking(id){if(confirm('Delete this booking?')){const {error}=await db.from('bookings').delete().eq('id',id);if(error)alert(error.message);else loadData()}}
 async function deleteExpense(id){if(confirm('Delete this expense?')){const {error}=await db.from('expenses').delete().eq('id',id);if(error)alert(error.message);else loadData()}}
 
