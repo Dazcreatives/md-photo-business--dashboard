@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MD Photo Business Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f5f5f5;color:#222}
+header{background:#111;color:#fff;padding:18px 25px;display:flex;justify-content:space-between;align-items:center}
+header h1{margin:0;font-size:24px}.gold{color:#d9b36c}
+nav{background:#fff;border-bottom:1px solid #ddd;padding:10px 18px;display:flex;gap:8px;flex-wrap:wrap}
+nav button{border:0;background:#eee;padding:10px 15px;border-radius:8px;cursor:pointer}nav button.active{background:#111;color:#fff}
+main{max-width:1200px;margin:24px auto;padding:0 16px}.section{display:none}.section.active{display:block}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
+.card,.panel{background:#fff;border-radius:12px;padding:19px;box-shadow:0 2px 8px #0001}.card small{color:#777}.card strong{display:block;font-size:26px;margin-top:7px}
+.panel{margin-bottom:18px}h2{margin-top:0}
+form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+label{font-size:13px;font-weight:bold}input,select,textarea{width:100%;padding:10px;border:1px solid #ccc;border-radius:7px;margin-top:5px;background:white}
+textarea{min-height:75px}.full{grid-column:1/-1}
+button.primary{background:#111;color:#fff;border:0;padding:11px 18px;border-radius:7px;cursor:pointer}
+button.secondary{background:#eee;color:#222;border:0;padding:10px 15px;border-radius:7px;cursor:pointer}
+button.danger{background:#b42318;color:#fff;border:0;padding:7px 10px;border-radius:6px;cursor:pointer}
+.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:10px;border-bottom:1px solid #eee;text-align:left}th{background:#fafafa}
+.badge{display:inline-block;padding:4px 8px;border-radius:12px;background:#eee;font-size:12px}.upcoming{border-left:4px solid #d9b36c;padding:10px 14px;margin:9px 0;background:#fafafa}
+.muted{color:#777}.error{color:#b42318;margin:8px 0}.success{color:#16794a;margin:8px 0}
+#login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:#111}
+.loginbox{background:#fff;width:100%;max-width:430px;padding:30px;border-radius:15px}.loginbox h1{margin-top:0}
+.loginbox form{display:block}.loginbox label{display:block;margin:12px 0}.loginbox button{width:100%;margin-top:8px}
+@media(max-width:650px){header{padding:15px}header div{font-size:12px}.cards{grid-template-columns:1fr 1fr}table{font-size:12px}}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="loginbox">
+    <h1>MD <span class="gold">Photo</span></h1>
+    <p class="muted">Business Dashboard</p>
+    <form id="authForm">
+      <label>Email<input id="email" type="email" required placeholder="Your email"></label>
+      <label>Password<input id="password" type="password" required placeholder="Password"></label>
+      <button class="primary" id="loginBtn" type="submit">Log in</button>
+      <button class="secondary" id="signupBtn" type="button">Create account</button>
+    </form>
+    <div id="authMessage"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+<header><h1>MD <span class="gold">Photo</span></h1><div><span id="userEmail"></span> &nbsp; <button class="secondary" onclick="logout()">Log out</button></div></header>
+<nav>
+<button class="tab active" onclick="showTab('dashboard',this)">Dashboard</button>
+<button class="tab" onclick="showTab('bookings',this)">Bookings</button>
+<button class="tab" onclick="showTab('expenses',this)">Expenses</button>
+</nav>
+<main>
+
+<section id="dashboard" class="section active">
+<h2>Overview</h2>
+<div class="cards">
+<div class="card"><small>Total Charged</small><strong id="charged">R0</strong></div>
+<div class="card"><small>Money Received</small><strong id="received">R0</strong></div>
+<div class="card"><small>Outstanding</small><strong id="outstanding">R0</strong></div>
+<div class="card"><small>Expenses</small><strong id="expensesTotal">R0</strong></div>
+<div class="card"><small>Profit</small><strong id="profit">R0</strong></div>
+<div class="card"><small>Upcoming Shoots</small><strong id="upcomingCount">0</strong></div>
+</div>
+<div class="panel"><h2>Upcoming Shoots</h2><div id="upcoming"></div></div>
+<div class="panel"><h2>Income by Booking Type</h2><div id="breakdown"></div></div>
+</section>
+
+<section id="bookings" class="section">
+<div class="panel">
+<h2>Add New Booking</h2>
+<form id="bookingForm">
+<label>Client name<input id="client" required></label>
+<label>Shoot date<input id="date" type="date" required></label>
+<label>Booking type<select id="type"><option>Engagement</option><option>Matric</option><option>Couple</option><option>Event</option><option>Family</option><option>Sports</option><option>Graduation</option><option>Birthday event</option><option>Wedding</option><option>Product</option><option>Headshots</option><option>Other</option></select></label>
+<label>Amount charged (R)<input id="amount" type="number" min="0" step="0.01" value="0"></label>
+<label>Amount paid (R)<input id="paid" type="number" min="0" step="0.01" value="0"></label>
+<label>Travel fee (R)<input id="travel" type="number" min="0" step="0.01" value="0"></label>
+<label>Contact person<input id="contact"></label>
+<label>Contact number<input id="phone"></label>
+<label>Status<select id="status"><option>Upcoming</option><option>Completed</option><option>Cancelled</option></select></label>
+<label class="full">Notes<textarea id="notes"></textarea></label>
+<div class="full"><button class="primary">Save Booking</button></div>
+</form>
+</div>
+<div class="panel">
+<h2>Bookings</h2>
+<div class="table-wrap"><table><thead><tr><th>Client</th><th>Date</th><th>Type</th><th>Charged</th><th>Paid</th><th>Balance</th><th>Travel</th><th>Status</th><th></th></tr></thead><tbody id="bookingRows"></tbody></table></div>
+</div>
+<div class="panel">
+<h2>One-time data import</h2>
+<p class="muted">Use this only if you want to load the bookings and expenses from your original MD Photo document into this online database. It is safe to run once; the button will not intentionally create duplicates if those records are already present.</p>
+<button class="secondary" onclick="importOriginalData()">Import original MD Photo records</button>
+<div id="importMessage"></div>
+</div>
+</section>
+
+<section id="expenses" class="section">
+<div class="panel">
+<h2>Add Expense</h2>
+<form id="expenseForm">
+<label>Date<input id="expenseDate" type="date" required></label>
+<label>Description<input id="description" placeholder="e.g. Facebook Ad" required></label>
+<label>Category<select id="category"><option>Equipment</option><option>Marketing</option><option>Travel</option><option>Software</option><option>Printing</option><option>Other</option></select></label>
+<label>Amount (R)<input id="expenseAmount" type="number" min="0" step="0.01" required></label>
+<div class="full"><button class="primary">Save Expense</button></div>
+</form>
+</div>
+<div class="panel"><h2>Expenses</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th></th></tr></thead><tbody id="expenseRows"></tbody></table></div></div>
+</section>
+</main>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://owjzygoyxjgfiikgarst.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_AjvdwMpTrpN6JsutyUcU1Q_O2Nqf9W4';
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+let bookings=[], expenses=[];
+
+const money = n => 'R' + Number(n||0).toLocaleString('en-ZA',{minimumFractionDigits:0,maximumFractionDigits:2});
+const esc = s => String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+
+async function start(){
+  const {data:{session}}=await db.auth.getSession();
+  if(session) showApp(session);
+}
+db.auth.onAuthStateChange((_event,session)=>{ if(session) showApp(session); else showLogin(); });
+
+function showApp(session){
+  document.getElementById('login').style.display='none';
+  document.getElementById('app').style.display='block';
+  document.getElementById('userEmail').textContent=session.user.email||'';
+  loadData();
+}
+function showLogin(){document.getElementById('login').style.display='flex';document.getElementById('app').style.display='none'}
+
+document.getElementById('authForm').onsubmit=async e=>{
+  e.preventDefault();
+  const msg=document.getElementById('authMessage');msg.className='muted';msg.textContent='Logging in...';
+  const {error}=await db.auth.signInWithPassword({email:email.value,password:password.value});
+  if(error){msg.className='error';msg.textContent=error.message}
+};
+document.getElementById('signupBtn').onclick=async()=>{
+  const msg=document.getElementById('authMessage');
+  if(!email.value||!password.value){msg.className='error';msg.textContent='Enter an email and password first.';return}
+  const {data,error}=await db.auth.signUp({email:email.value,password:password.value});
+  if(error){msg.className='error';msg.textContent=error.message}
+  else if(data.session){showApp(data.session)}
+  else {msg.className='success';msg.textContent='Account created. Check your email to confirm it, then log in.'}
+};
+async function logout(){await db.auth.signOut()}
+
+async function loadData(){
+  const [b,e]=await Promise.all([
+    db.from('bookings').select('*').order('shoot_date',{ascending:true}),
+    db.from('expenses').select('*').order('expense_date',{ascending:false})
+  ]);
+  if(b.error){alert('Could not load bookings: '+b.error.message);return}
+  if(e.error){alert('Could not load expenses: '+e.error.message);return}
+  bookings=b.data||[];expenses=e.data||[];render();
+}
+function showTab(id,btn){document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));btn.classList.add('active')}
+
+function render(){
+  const charged=bookings.reduce((s,b)=>s+Number(b.amount_charged||0)+Number(b.travel_fee||0),0);
+  const received=bookings.reduce((s,b)=>s+Number(b.amount_paid||0),0);
+  const exp=expenses.reduce((s,e)=>s+Number(e.amount||0),0);
+  document.getElementById('charged').textContent=money(charged);
+  document.getElementById('received').textContent=money(received);
+  document.getElementById('outstanding').textContent=money(Math.max(0,charged-received));
+  document.getElementById('expensesTotal').textContent=money(exp);
+  document.getElementById('profit').textContent=money(charged-exp);
+
+  const today=new Date().toISOString().slice(0,10);
+  const up=bookings.filter(b=>b.status==='Upcoming'&&b.shoot_date>=today).sort((a,b)=>a.shoot_date.localeCompare(b.shoot_date));
+  document.getElementById('upcomingCount').textContent=up.length;
+  document.getElementById('upcoming').innerHTML=up.length?up.map(b=>`<div class="upcoming"><b>${esc(b.client)}</b> — ${new Date(b.shoot_date+'T12:00:00').toLocaleDateString('en-ZA')}<br><span class="muted">${esc(b.booking_type)} • ${money(Number(b.amount_charged||0)+Number(b.travel_fee||0))} charged • ${money(Math.max(0,Number(b.amount_charged||0)+Number(b.travel_fee||0)-Number(b.amount_paid||0)))} owing</span></div>`).join(''):'<p class="muted">No upcoming shoots.</p>';
+
+  const types={};bookings.forEach(b=>types[b.booking_type]=(types[b.booking_type]||0)+Number(b.amount_charged||0)+Number(b.travel_fee||0));
+  document.getElementById('breakdown').innerHTML=Object.entries(types).sort((a,b)=>b[1]-a[1]).map(x=>`<p><b>${esc(x[0])}</b> — ${money(x[1])}</p>`).join('')||'<p class="muted">No bookings yet.</p>';
+
+  document.getElementById('bookingRows').innerHTML=bookings.map(b=>{
+    const total=Number(b.amount_charged||0)+Number(b.travel_fee||0), bal=Math.max(0,total-Number(b.amount_paid||0));
+    return `<tr><td>${esc(b.client)}</td><td>${b.shoot_date}</td><td>${esc(b.booking_type)}</td><td>${money(b.amount_charged)}</td><td>${money(b.amount_paid)}</td><td>${money(bal)}</td><td>${b.travel_fee?money(b.travel_fee):'Included'}</td><td><span class="badge">${esc(b.status)}</span></td><td><button class="danger" onclick="deleteBooking('${b.id}')">Delete</button></td></tr>`
+  }).join('');
+
+  document.getElementById('expenseRows').innerHTML=expenses.map(e=>`<tr><td>${e.expense_date}</td><td>${esc(e.description)}</td><td>${esc(e.category)}</td><td>${money(e.amount)}</td><td><button class="danger" onclick="deleteExpense('${e.id}')">Delete</button></td></tr>`).join('');
+}
+
+document.getElementById('bookingForm').onsubmit=async e=>{
+  e.preventDefault();
+  const {data:{user}}=await db.auth.getUser();
+  const {error}=await db.from('bookings').insert({user_id:user.id,client:client.value,shoot_date:date.value,booking_type:type.value,amount_charged:Number(amount.value||0),amount_paid:Number(paid.value||0),travel_fee:Number(travel.value||0),contact_person:contact.value,contact_number:phone.value,status:status.value,notes:notes.value});
+  if(error){alert(error.message);return}
+  e.target.reset();amount.value=0;paid.value=0;travel.value=0;await loadData();showTab('dashboard',document.querySelector('.tab'));
+};
+document.getElementById('expenseForm').onsubmit=async e=>{
+  e.preventDefault();
+  const {data:{user}}=await db.auth.getUser();
+  const {error}=await db.from('expenses').insert({user_id:user.id,expense_date:expenseDate.value,description:description.value,category:category.value,amount:Number(expenseAmount.value)});
+  if(error){alert(error.message);return}
+  e.target.reset();await loadData();
+};
+async function deleteBooking(id){if(confirm('Delete this booking?')){const {error}=await db.from('bookings').delete().eq('id',id);if(error)alert(error.message);else loadData()}}
+async function deleteExpense(id){if(confirm('Delete this expense?')){const {error}=await db.from('expenses').delete().eq('id',id);if(error)alert(error.message);else loadData()}}
+
+async function importOriginalData(){
+  const msg=document.getElementById('importMessage');msg.className='muted';msg.textContent='Importing...';
+  const {data:{user}}=await db.auth.getUser();
+  const oldBookings=[
+    ['Winelands Festival','2026-05-28','Event',0,0,0,'Jo','728080106','Completed'],
+    ['Shivadna','2026-06-05','Birthday event',1800,1800,0,'Yudhistir','748618661','Completed'],
+    ['Jess & Keanu','2026-06-27','Engagement',0,0,0,'Jess','','Completed'],
+    ['Lize + Wern','2026-06-27','Engagement',300,300,0,'Lize','','Completed'],
+    ["King's and Queens",'2026-08-23','Sports',1000,1000,0,'JP','','Completed'],
+    ['Nemo + Danie','2026-09-05','Couple',250,250,0,'Nemo','','Completed'],
+    ['Fatima','2026-09-08','Graduation',750,750,0,'Fatima','843323313','Completed'],
+    ['Daniel','2026-09-19','Matric',1800,0,375,'Natascha','823767644','Upcoming'],
+    ['Craig Isaacs','2026-09-22','Matric',1800,0,200,'Charlene','764596709','Upcoming']
+  ];
+  const oldExpenses=[
+    ['2026-05-19','Canon Rebel XS','Equipment',2500],
+    ['2026-05-21','Canon EOS 350D','Equipment',2200],
+    ['2026-05-20','Canon EF 80-200 Lens','Equipment',1200],
+    ['2026-05-01','Facebook Ad','Marketing',200]
+  ];
+  let inserted=0;
+  for(const b of oldBookings){
+    const {data:found}=await db.from('bookings').select('id').eq('user_id',user.id).eq('client',b[0]).eq('shoot_date',b[1]).limit(1);
+    if(!found?.length){
+      const {error}=await db.from('bookings').insert({user_id:user.id,client:b[0],shoot_date:b[1],booking_type:b[2],amount_charged:b[3],amount_paid:b[4],travel_fee:b[5],contact_person:b[6],contact_number:b[7],status:b[8]});
+      if(error){msg.className='error';msg.textContent='Import error: '+error.message;return} inserted++;
+    }
+  }
+  for(const x of oldExpenses){
+    const {data:found}=await db.from('expenses').select('id').eq('user_id',user.id).eq('description',x[1]).eq('expense_date',x[0]).limit(1);
+    if(!found?.length){
+      const {error}=await db.from('expenses').insert({user_id:user.id,expense_date:x[0],description:x[1],category:x[2],amount:x[3]});
+      if(error){msg.className='error';msg.textContent='Import error: '+error.message;return} inserted++;
+    }
+  }
+  msg.className='success';msg.textContent=inserted+' original records imported (duplicates were skipped).';
+  await loadData();
+}
+start();
+</script>
+</body>
+</html>
