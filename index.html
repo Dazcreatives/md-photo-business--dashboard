@@ -92,7 +92,7 @@ button.danger{background:#b42318;color:#fff;border:0;padding:7px 10px;border-rad
 </form>
 </div>
 <div class="panel">
-<h2>Bookings</h2>
+<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><h2>Bookings</h2><button class="secondary" type="button" onclick="exportData()">Download Data Backup</button></div>
 <p class="muted">Use <b>Edit</b> to change the booking, payment or travel details. When a shoot is finished, use <b>Mark completed</b> — no new booking is needed.</p><div class="table-wrap"><table><thead><tr><th>Client</th><th>Date</th><th>Type</th><th>Charged</th><th>Paid</th><th>Balance</th><th>Travel</th><th>Status</th><th>Actions</th></tr></thead><tbody id="bookingRows"></tbody></table></div>
 </div>
 <div class="panel">
@@ -262,6 +262,42 @@ async function markCompleted(id){
 }
 async function deleteBooking(id){if(confirm('Delete this booking?')){const {error}=await db.from('bookings').delete().eq('id',id);if(error)alert(error.message);else loadData()}}
 async function deleteExpense(id){if(confirm('Delete this expense?')){const {error}=await db.from('expenses').delete().eq('id',id);if(error)alert(error.message);else loadData()}}
+
+async function exportData(){
+  try {
+    const {data:{user},error:userError}=await db.auth.getUser();
+    if(userError || !user){
+      alert('Please log in again before exporting your data.');
+      return;
+    }
+    const [bookingResult,expenseResult]=await Promise.all([
+      db.from('bookings').select('*').order('shoot_date',{ascending:true}),
+      db.from('expenses').select('*').order('expense_date',{ascending:true})
+    ]);
+    if(bookingResult.error) throw bookingResult.error;
+    if(expenseResult.error) throw expenseResult.error;
+
+    const backup={
+      app:'MD Photo Business Dashboard',
+      exportedAt:new Date().toISOString(),
+      exportedBy:user.email || user.id,
+      bookings:bookingResult.data || [],
+      expenses:expenseResult.data || []
+    };
+    const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');
+    link.href=url;
+    link.download=`md-photo-backup-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    alert(`Backup downloaded successfully.\n${backup.bookings.length} bookings and ${backup.expenses.length} expenses exported.`);
+  } catch(error) {
+    alert('Could not export your data: '+(error.message || error));
+  }
+}
 
 async function importOriginalData(){
   const msg=document.getElementById('importMessage');msg.className='muted';msg.textContent='Importing...';
