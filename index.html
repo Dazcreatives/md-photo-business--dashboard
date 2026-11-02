@@ -4,7 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MD Photo Business Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f5f5f5;color:#222}
 header{background:#111;color:#fff;padding:18px 25px;display:flex;justify-content:space-between;align-items:center}
@@ -92,13 +94,14 @@ button.danger{background:#b42318;color:#fff;border:0;padding:7px 10px;border-rad
 </form>
 </div>
 <div class="panel">
-<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><h2>Bookings</h2><button class="secondary" type="button" onclick="exportData()">Download Data Backup</button></div>
+<h2>Bookings</h2>
 <p class="muted">Use <b>Edit</b> to change the booking, payment or travel details. When a shoot is finished, use <b>Mark completed</b> — no new booking is needed.</p><div class="table-wrap"><table><thead><tr><th>Client</th><th>Date</th><th>Type</th><th>Charged</th><th>Paid</th><th>Balance</th><th>Travel</th><th>Status</th><th>Actions</th></tr></thead><tbody id="bookingRows"></tbody></table></div>
 </div>
 <div class="panel">
-<h2>One-time data import</h2>
-<p class="muted">Use this only if you want to load the bookings and expenses from your original MD Photo document into this online database. It is safe to run once; the button will not intentionally create duplicates if those records are already present.</p>
-<button class="secondary" onclick="importOriginalData()">Import original MD Photo records</button>
+<h2>Import Supabase Backup</h2>
+<p class="muted">Choose the JSON backup downloaded from your old dashboard. Existing imported records are skipped to avoid duplicates.</p>
+<label>Backup file<input id="backupFile" type="file" accept=".json,application/json"></label>
+<button class="secondary" type="button" onclick="importBackup()">Import Backup into Firebase</button>
 <div id="importMessage"></div>
 </div>
 </section>
@@ -140,55 +143,76 @@ button.danger{background:#b42318;color:#fff;border:0;padding:7px 10px;border-rad
 </div>
 
 <script>
-const SUPABASE_URL = 'https://owjzygoyxjgfiikgarst.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_AjvdwMpTrpN6JsutyUcU1Q_O2Nqf9W4';
-const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+const firebaseConfig = {
+  apiKey: "AIzaSyD1GNU48DMAcgqkp1YCiELsgreiT6ome4",
+  authDomain: "md-photo-billing.firebaseapp.com",
+  projectId: "md-photo-billing",
+  storageBucket: "md-photo-billing.firebasestorage.app",
+  messagingSenderId: "429570517213",
+  appId: "1:429570517213:web:1a8e8f40dc1081bab71334"
+};
+
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
 let bookings=[], expenses=[];
 
 const money = n => 'R' + Number(n||0).toLocaleString('en-ZA',{minimumFractionDigits:0,maximumFractionDigits:2});
 const esc = s => String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+const todayLocal = () => {
+  const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10);
+};
 
 async function start(){
-  const {data:{session}}=await db.auth.getSession();
-  if(session) showApp(session);
+  auth.onAuthStateChanged(user=>{
+    if(user) showApp(user); else showLogin();
+  });
 }
-db.auth.onAuthStateChange((_event,session)=>{ if(session) showApp(session); else showLogin(); });
-
-function showApp(session){
+function showApp(user){
   document.getElementById('login').style.display='none';
   document.getElementById('app').style.display='block';
-  document.getElementById('userEmail').textContent=session.user.email||'';
+  document.getElementById('userEmail').textContent=user.email||'';
   loadData();
 }
 function showLogin(){document.getElementById('login').style.display='flex';document.getElementById('app').style.display='none'}
 
 document.getElementById('authForm').onsubmit=async e=>{
   e.preventDefault();
-  const msg=document.getElementById('authMessage');msg.className='muted';msg.textContent='Logging in...';
-  const {error}=await db.auth.signInWithPassword({email:email.value,password:password.value});
-  if(error){msg.className='error';msg.textContent=error.message}
+  const msg=document.getElementById('authMessage'); msg.className='muted'; msg.textContent='Logging in...';
+  try {
+    await auth.signInWithEmailAndPassword(document.getElementById('email').value.trim(),document.getElementById('password').value);
+  } catch(error){msg.className='error';msg.textContent=error.message;}
 };
 document.getElementById('signupBtn').onclick=async()=>{
   const msg=document.getElementById('authMessage');
-  if(!email.value||!password.value){msg.className='error';msg.textContent='Enter an email and password first.';return}
-  const {data,error}=await db.auth.signUp({email:email.value,password:password.value});
-  if(error){msg.className='error';msg.textContent=error.message}
-  else if(data.session){showApp(data.session)}
-  else {msg.className='success';msg.textContent='Account created. Check your email to confirm it, then log in.'}
+  const emailValue=document.getElementById('email').value.trim();
+  const passwordValue=document.getElementById('password').value;
+  if(!emailValue||!passwordValue){msg.className='error';msg.textContent='Enter an email and password first.';return}
+  msg.className='muted';msg.textContent='Creating account...';
+  try { await auth.createUserWithEmailAndPassword(emailValue,passwordValue); }
+  catch(error){msg.className='error';msg.textContent=error.message;}
 };
-async function logout(){await db.auth.signOut()}
+async function logout(){await auth.signOut()}
 
 async function loadData(){
-  const [b,e]=await Promise.all([
-    db.from('bookings').select('*').order('shoot_date',{ascending:true}),
-    db.from('expenses').select('*').order('expense_date',{ascending:false})
-  ]);
-  if(b.error){alert('Could not load bookings: '+b.error.message);return}
-  if(e.error){alert('Could not load expenses: '+e.error.message);return}
-  bookings=b.data||[];expenses=e.data||[];render();
+  try {
+    const [b,e]=await Promise.all([
+      db.collection('bookings').orderBy('shoot_date','asc').get(),
+      db.collection('expenses').orderBy('expense_date','desc').get()
+    ]);
+    bookings=b.docs.map(d=>({id:d.id,...d.data()}));
+    expenses=e.docs.map(d=>({id:d.id,...d.data()}));
+    render();
+  } catch(error) {
+    alert('Could not load dashboard data: '+error.message);
+  }
 }
-function showTab(id,btn){document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));btn.classList.add('active')}
-
+function showTab(id,btn){
+  document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  btn.classList.add('active');
+}
 function render(){
   const charged=bookings.reduce((s,b)=>s+Number(b.amount_charged||0)+Number(b.travel_fee||0),0);
   const received=bookings.reduce((s,b)=>s+Number(b.amount_paid||0),0);
@@ -199,143 +223,133 @@ function render(){
   document.getElementById('expensesTotal').textContent=money(exp);
   document.getElementById('profit').textContent=money(charged-exp);
 
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayLocal();
   const up=bookings.filter(b=>b.status==='Upcoming'&&b.shoot_date>=today).sort((a,b)=>a.shoot_date.localeCompare(b.shoot_date));
   document.getElementById('upcomingCount').textContent=up.length;
   document.getElementById('upcoming').innerHTML=up.length?up.map(b=>`<div class="upcoming"><b>${esc(b.client)}</b> — ${new Date(b.shoot_date+'T12:00:00').toLocaleDateString('en-ZA')}<br><span class="muted">${esc(b.booking_type)} • ${money(Number(b.amount_charged||0)+Number(b.travel_fee||0))} charged • ${money(Math.max(0,Number(b.amount_charged||0)+Number(b.travel_fee||0)-Number(b.amount_paid||0)))} owing</span></div>`).join(''):'<p class="muted">No upcoming shoots.</p>';
 
-  const types={};bookings.forEach(b=>types[b.booking_type]=(types[b.booking_type]||0)+Number(b.amount_charged||0)+Number(b.travel_fee||0));
+  const types={}; bookings.forEach(b=>types[b.booking_type]=(types[b.booking_type]||0)+Number(b.amount_charged||0)+Number(b.travel_fee||0));
   document.getElementById('breakdown').innerHTML=Object.entries(types).sort((a,b)=>b[1]-a[1]).map(x=>`<p><b>${esc(x[0])}</b> — ${money(x[1])}</p>`).join('')||'<p class="muted">No bookings yet.</p>';
 
   document.getElementById('bookingRows').innerHTML=bookings.map(b=>{
     const total=Number(b.amount_charged||0)+Number(b.travel_fee||0), bal=Math.max(0,total-Number(b.amount_paid||0));
     const complete=b.status==='Upcoming' ? `<button class="complete" onclick="markCompleted('${b.id}')">Mark completed</button>` : '';
-    return `<tr><td>${esc(b.client)}</td><td>${b.shoot_date}</td><td>${esc(b.booking_type)}</td><td>${money(b.amount_charged)}</td><td>${money(b.amount_paid)}</td><td>${money(bal)}</td><td>${b.travel_fee?money(b.travel_fee):'Included'}</td><td><span class="badge">${esc(b.status)}</span></td><td><div class="action"><button class="edit" onclick="openEdit('${b.id}')">Edit</button>${complete}<button class="danger" onclick="deleteBooking('${b.id}')">Delete</button></div></td></tr>`
+    return `<tr><td>${esc(b.client)}</td><td>${esc(b.shoot_date)}</td><td>${esc(b.booking_type)}</td><td>${money(b.amount_charged)}</td><td>${money(b.amount_paid)}</td><td>${money(bal)}</td><td>${b.travel_fee?money(b.travel_fee):'Included'}</td><td><span class="badge">${esc(b.status)}</span></td><td><div class="action"><button class="edit" onclick="openEdit('${b.id}')">Edit</button>${complete}<button class="danger" onclick="deleteBooking('${b.id}')">Delete</button></div></td></tr>`
   }).join('');
-
-  document.getElementById('expenseRows').innerHTML=expenses.map(e=>`<tr><td>${e.expense_date}</td><td>${esc(e.description)}</td><td>${esc(e.category)}</td><td>${money(e.amount)}</td><td><button class="danger" onclick="deleteExpense('${e.id}')">Delete</button></td></tr>`).join('');
+  document.getElementById('expenseRows').innerHTML=expenses.map(e=>`<tr><td>${esc(e.expense_date)}</td><td>${esc(e.description)}</td><td>${esc(e.category)}</td><td>${money(e.amount)}</td><td><button class="danger" onclick="deleteExpense('${e.id}')">Delete</button></td></tr>`).join('');
 }
 
 document.getElementById('bookingForm').onsubmit=async e=>{
   e.preventDefault();
-  const {data:{user}}=await db.auth.getUser();
-  const {error}=await db.from('bookings').insert({user_id:user.id,client:client.value,shoot_date:date.value,booking_type:type.value,amount_charged:Number(amount.value||0),amount_paid:Number(paid.value||0),travel_fee:Number(travel.value||0),contact_person:contact.value,contact_number:phone.value,status:status.value,notes:notes.value});
-  if(error){alert(error.message);return}
-  e.target.reset();amount.value=0;paid.value=0;travel.value=0;await loadData();showTab('dashboard',document.querySelector('.tab'));
+  const user=auth.currentUser;
+  try {
+    await db.collection('bookings').add({
+      createdBy:user.uid, client:document.getElementById('client').value.trim(),
+      shoot_date:document.getElementById('date').value, booking_type:document.getElementById('type').value,
+      amount_charged:Number(document.getElementById('amount').value||0),
+      amount_paid:Number(document.getElementById('paid').value||0),
+      travel_fee:Number(document.getElementById('travel').value||0),
+      contact_person:document.getElementById('contact').value,
+      contact_number:document.getElementById('phone').value,
+      status:document.getElementById('status').value, notes:document.getElementById('notes').value
+    });
+    e.target.reset(); document.getElementById('amount').value=0;document.getElementById('paid').value=0;document.getElementById('travel').value=0;
+    await loadData(); showTab('dashboard',document.querySelector('.tab'));
+  } catch(error){alert('Could not save booking: '+error.message);}
 };
 document.getElementById('expenseForm').onsubmit=async e=>{
   e.preventDefault();
-  const {data:{user}}=await db.auth.getUser();
-  const {error}=await db.from('expenses').insert({user_id:user.id,expense_date:expenseDate.value,description:description.value,category:category.value,amount:Number(expenseAmount.value)});
-  if(error){alert(error.message);return}
-  e.target.reset();await loadData();
+  try {
+    await db.collection('expenses').add({
+      createdBy:auth.currentUser.uid, expense_date:document.getElementById('expenseDate').value,
+      description:document.getElementById('description').value.trim(),
+      category:document.getElementById('category').value, amount:Number(document.getElementById('expenseAmount').value)
+    });
+    e.target.reset(); await loadData();
+  } catch(error){alert('Could not save expense: '+error.message);}
 };
 
 function openEdit(id){
-  const b=bookings.find(x=>String(x.id)===String(id));
-  if(!b)return;
-  editId.value=b.id;editClient.value=b.client||'';editDate.value=b.shoot_date||'';editType.value=b.booking_type||'Other';
-  editAmount.value=Number(b.amount_charged||0);editPaid.value=Number(b.amount_paid||0);editTravel.value=Number(b.travel_fee||0);
-  editContact.value=b.contact_person||'';editPhone.value=b.contact_number||'';editStatus.value=b.status||'Upcoming';editNotes.value=b.notes||'';
+  const b=bookings.find(x=>String(x.id)===String(id)); if(!b)return;
+  document.getElementById('editId').value=b.id;
+  document.getElementById('editClient').value=b.client||'';
+  document.getElementById('editDate').value=b.shoot_date||'';
+  document.getElementById('editType').value=b.booking_type||'Other';
+  document.getElementById('editAmount').value=Number(b.amount_charged||0);
+  document.getElementById('editPaid').value=Number(b.amount_paid||0);
+  document.getElementById('editTravel').value=Number(b.travel_fee||0);
+  document.getElementById('editContact').value=b.contact_person||'';
+  document.getElementById('editPhone').value=b.contact_number||'';
+  document.getElementById('editStatus').value=b.status||'Upcoming';
+  document.getElementById('editNotes').value=b.notes||'';
   document.getElementById('editModal').classList.add('show');
 }
 function closeEdit(){document.getElementById('editModal').classList.remove('show')}
 document.getElementById('editModal').addEventListener('click',e=>{if(e.target.id==='editModal')closeEdit()});
 document.getElementById('editForm').onsubmit=async e=>{
-  e.preventDefault();
-  const {error}=await db.from('bookings').update({
-    client:editClient.value,shoot_date:editDate.value,booking_type:editType.value,
-    amount_charged:Number(editAmount.value||0),amount_paid:Number(editPaid.value||0),
-    travel_fee:Number(editTravel.value||0),contact_person:editContact.value,
-    contact_number:editPhone.value,status:editStatus.value,notes:editNotes.value
-  }).eq('id',editId.value);
-  if(error){alert(error.message);return}
-  closeEdit();await loadData();
+  e.preventDefault(); const id=document.getElementById('editId').value;
+  try {
+    await db.collection('bookings').doc(id).update({
+      client:document.getElementById('editClient').value.trim(),
+      shoot_date:document.getElementById('editDate').value,
+      booking_type:document.getElementById('editType').value,
+      amount_charged:Number(document.getElementById('editAmount').value||0),
+      amount_paid:Number(document.getElementById('editPaid').value||0),
+      travel_fee:Number(document.getElementById('editTravel').value||0),
+      contact_person:document.getElementById('editContact').value,
+      contact_number:document.getElementById('editPhone').value,
+      status:document.getElementById('editStatus').value,
+      notes:document.getElementById('editNotes').value
+    });
+    closeEdit(); await loadData();
+  } catch(error){alert('Could not update booking: '+error.message);}
 };
 async function markCompleted(id){
-  const b=bookings.find(x=>String(x.id)===String(id));
-  if(!b)return;
+  const b=bookings.find(x=>String(x.id)===String(id)); if(!b)return;
   if(confirm(`Mark ${b.client} as completed?`)){
-    const {error}=await db.from('bookings').update({status:'Completed'}).eq('id',id);
-    if(error)alert(error.message);else await loadData();
+    try {await db.collection('bookings').doc(id).update({status:'Completed'}); await loadData();}
+    catch(error){alert('Could not update booking: '+error.message);}
   }
 }
-async function deleteBooking(id){if(confirm('Delete this booking?')){const {error}=await db.from('bookings').delete().eq('id',id);if(error)alert(error.message);else loadData()}}
-async function deleteExpense(id){if(confirm('Delete this expense?')){const {error}=await db.from('expenses').delete().eq('id',id);if(error)alert(error.message);else loadData()}}
+async function deleteBooking(id){
+  if(confirm('Delete this booking?')){
+    try {await db.collection('bookings').doc(id).delete(); await loadData();}
+    catch(error){alert('Could not delete booking: '+error.message);}
+  }
+}
+async function deleteExpense(id){
+  if(confirm('Delete this expense?')){
+    try {await db.collection('expenses').doc(id).delete(); await loadData();}
+    catch(error){alert('Could not delete expense: '+error.message);}
+  }
+}
 
-async function exportData(){
+async function importBackup(){
+  const msg=document.getElementById('importMessage');
+  const file=document.getElementById('backupFile').files[0];
+  if(!file){msg.className='error';msg.textContent='Please choose your downloaded JSON backup first.';return;}
+  msg.className='muted';msg.textContent='Reading backup...';
   try {
-    const {data:{user},error:userError}=await db.auth.getUser();
-    if(userError || !user){
-      alert('Please log in again before exporting your data.');
-      return;
+    const backup=JSON.parse(await file.text());
+    if(!Array.isArray(backup.bookings)||!Array.isArray(backup.expenses)) throw new Error('This file does not look like an MD Photo backup.');
+    const batch=db.batch(); let addedBookings=0,addedExpenses=0;
+    for(const item of backup.bookings){
+      if(item.id===undefined||!item.client||!item.shoot_date) throw new Error('A booking is missing its original ID, client or shoot date. No records were imported.');
+      const ref=db.collection('bookings').doc('supabase-'+String(item.id));
+      const existing=await ref.get();
+      if(!existing.exists){const data={...item,legacy_supabase_id:item.id,importedFrom:'Supabase',importedAt:firebase.firestore.FieldValue.serverTimestamp()};delete data.id;batch.set(ref,data);addedBookings++;}
     }
-    const [bookingResult,expenseResult]=await Promise.all([
-      db.from('bookings').select('*').order('shoot_date',{ascending:true}),
-      db.from('expenses').select('*').order('expense_date',{ascending:true})
-    ]);
-    if(bookingResult.error) throw bookingResult.error;
-    if(expenseResult.error) throw expenseResult.error;
-
-    const backup={
-      app:'MD Photo Business Dashboard',
-      exportedAt:new Date().toISOString(),
-      exportedBy:user.email || user.id,
-      bookings:bookingResult.data || [],
-      expenses:expenseResult.data || []
-    };
-    const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
-    const url=URL.createObjectURL(blob);
-    const link=document.createElement('a');
-    link.href=url;
-    link.download=`md-photo-backup-${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    alert(`Backup downloaded successfully.\n${backup.bookings.length} bookings and ${backup.expenses.length} expenses exported.`);
-  } catch(error) {
-    alert('Could not export your data: '+(error.message || error));
-  }
-}
-
-async function importOriginalData(){
-  const msg=document.getElementById('importMessage');msg.className='muted';msg.textContent='Importing...';
-  const {data:{user}}=await db.auth.getUser();
-  const oldBookings=[
-    ['Winelands Festival','2026-05-28','Event',0,0,0,'Jo','728080106','Completed'],
-    ['Shivadna','2026-06-05','Birthday event',1800,1800,0,'Yudhistir','748618661','Completed'],
-    ['Jess & Keanu','2026-06-27','Engagement',0,0,0,'Jess','','Completed'],
-    ['Lize + Wern','2026-06-27','Engagement',300,300,0,'Lize','','Completed'],
-    ["King's and Queens",'2026-08-23','Sports',1000,1000,0,'JP','','Completed'],
-    ['Nemo + Danie','2026-09-05','Couple',250,250,0,'Nemo','','Completed'],
-    ['Fatima','2026-09-08','Graduation',750,750,0,'Fatima','843323313','Completed'],
-    ['Daniel','2026-09-19','Matric',1800,0,375,'Natascha','823767644','Upcoming'],
-    ['Craig Isaacs','2026-09-22','Matric',1800,0,200,'Charlene','764596709','Upcoming']
-  ];
-  const oldExpenses=[
-    ['2026-05-19','Canon Rebel XS','Equipment',2500],
-    ['2026-05-21','Canon EOS 350D','Equipment',2200],
-    ['2026-05-20','Canon EF 80-200 Lens','Equipment',1200],
-    ['2026-05-01','Facebook Ad','Marketing',200]
-  ];
-  let inserted=0;
-  for(const b of oldBookings){
-    const {data:found}=await db.from('bookings').select('id').eq('user_id',user.id).eq('client',b[0]).eq('shoot_date',b[1]).limit(1);
-    if(!found?.length){
-      const {error}=await db.from('bookings').insert({user_id:user.id,client:b[0],shoot_date:b[1],booking_type:b[2],amount_charged:b[3],amount_paid:b[4],travel_fee:b[5],contact_person:b[6],contact_number:b[7],status:b[8]});
-      if(error){msg.className='error';msg.textContent='Import error: '+error.message;return} inserted++;
+    for(const item of backup.expenses){
+      if(item.id===undefined||!item.description||!item.expense_date) throw new Error('An expense is missing its original ID, description or date. No records were imported.');
+      const ref=db.collection('expenses').doc('supabase-'+String(item.id));
+      const existing=await ref.get();
+      if(!existing.exists){const data={...item,legacy_supabase_id:item.id,importedFrom:'Supabase',importedAt:firebase.firestore.FieldValue.serverTimestamp()};delete data.id;batch.set(ref,data);addedExpenses++;}
     }
-  }
-  for(const x of oldExpenses){
-    const {data:found}=await db.from('expenses').select('id').eq('user_id',user.id).eq('description',x[1]).eq('expense_date',x[0]).limit(1);
-    if(!found?.length){
-      const {error}=await db.from('expenses').insert({user_id:user.id,expense_date:x[0],description:x[1],category:x[2],amount:x[3]});
-      if(error){msg.className='error';msg.textContent='Import error: '+error.message;return} inserted++;
-    }
-  }
-  msg.className='success';msg.textContent=inserted+' original records imported (duplicates were skipped).';
-  await loadData();
+    if(addedBookings+addedExpenses>0) await batch.commit();
+    msg.className='success';
+    msg.textContent=`Import complete: ${addedBookings} bookings and ${addedExpenses} expenses added. Existing imported records were skipped.`;
+    await loadData();
+  } catch(error){msg.className='error';msg.textContent='Import failed: '+error.message;}
 }
 start();
 </script>
